@@ -5,7 +5,6 @@ exports.createTrip = async (req, res) => {
   try {
     const { vehicle_id, passengers, distance_km, start_date, end_date, location } = req.body
 
-    // Get vehicle
     const { data: vehicle, error: vehicleError } = await supabase
       .from('vehicles')
       .select('*')
@@ -21,7 +20,6 @@ exports.createTrip = async (req, res) => {
     if (passengers > vehicle.allowed_passengers)
       return res.status(400).json({ message: 'Passenger limit exceeded' })
 
-    // Insert trip
     const { data: trip, error: tripError } = await supabase
       .from('trips')
       .insert([{
@@ -38,7 +36,7 @@ exports.createTrip = async (req, res) => {
 
     if (tripError) return res.status(400).json({ message: tripError.message })
 
-    // Update vehicle availability
+    // Mark vehicle unavailable
     await supabase.from('vehicles')
       .update({ isavailable: false })
       .eq('id', vehicle_id)
@@ -53,9 +51,8 @@ exports.createTrip = async (req, res) => {
 exports.updateTrip = async (req, res) => {
   try {
     const { tripId } = req.params
-    const updates = req.body // e.g., { passengers: 2, location: "New Place" }
+    const updates = req.body
 
-    // Get trip
     const { data: trip, error: tripError } = await supabase
       .from('trips')
       .select('*')
@@ -64,11 +61,10 @@ exports.updateTrip = async (req, res) => {
 
     if (tripError || !trip) return res.status(404).json({ message: 'Trip not found' })
 
-    // Only customer who owns the trip can update
     if (trip.customer_id !== req.user.id)
       return res.status(403).json({ message: 'Access denied' })
 
-    // Check if passengers exceed vehicle limit
+    // Check passenger limit if updating passengers
     if (updates.passengers) {
       const { data: vehicle } = await supabase
         .from('vehicles')
@@ -80,7 +76,6 @@ exports.updateTrip = async (req, res) => {
         return res.status(400).json({ message: 'Passenger limit exceeded' })
     }
 
-    // Update trip
     const { data: updatedTrip, error: updateError } = await supabase
       .from('trips')
       .update(updates)
@@ -120,6 +115,41 @@ exports.endTrip = async (req, res) => {
       .eq('id', trip.vehicle_id)
 
     res.json({ message: 'Trip ended', tripCost })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+}
+
+// DELETE Trip
+exports.deleteTrip = async (req, res) => {
+  try {
+    const { tripId } = req.params
+
+    const { data: trip, error: tripError } = await supabase
+      .from('trips')
+      .select('*')
+      .eq('id', tripId)
+      .single()
+
+    if (tripError || !trip) return res.status(404).json({ message: 'Trip not found' })
+
+    if (trip.customer_id !== req.user.id)
+      return res.status(403).json({ message: 'Access denied' })
+
+    await supabase
+      .from('trips')
+      .delete()
+      .eq('id', tripId)
+
+    // Make vehicle available again if trip not completed
+    if (!trip.iscompleted) {
+      await supabase
+        .from('vehicles')
+        .update({ isavailable: true })
+        .eq('id', trip.vehicle_id)
+    }
+
+    res.json({ message: 'Trip deleted successfully' })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
